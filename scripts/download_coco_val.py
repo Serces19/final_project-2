@@ -31,6 +31,8 @@ def download(url, dest: Path):
     print("   Done.\n")
 
 def build_csv():
+    import pandas as pd
+
     ann_file = DATA_DIR / "annotations" / "captions_val2017.json"
     img_dir  = DATA_DIR / "val2017"
 
@@ -41,7 +43,7 @@ def build_csv():
     # Build image_id → filename map
     id_to_file = {img["id"]: img["file_name"] for img in coco["images"]}
 
-    # Take first caption per image (5 exist per image, we use index 0)
+    # Take first caption per image (5 captions exist per image)
     seen = set()
     rows = []
     for ann in coco["annotations"]:
@@ -50,13 +52,14 @@ def build_csv():
             continue
         seen.add(img_id)
         fname = id_to_file[img_id]
-        path  = str(img_dir / fname)
-        rows.append(f'"{path}","{ann["caption"].strip()}"\n')
+        rows.append({
+            "image_path": str(img_dir / fname),
+            "description": ann["caption"].strip()
+        })
 
     CSV_OUT.parent.mkdir(parents=True, exist_ok=True)
-    with open(CSV_OUT, "w", encoding="utf-8") as f:
-        f.write("image_path,description\n")
-        f.writelines(rows)
+    # Use pandas to handle quotes/commas inside captions correctly
+    pd.DataFrame(rows).to_csv(CSV_OUT, index=False)
 
     print(f"✅ CSV saved: {CSV_OUT}  ({len(rows)} pairs)\n")
 

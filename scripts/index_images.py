@@ -31,7 +31,7 @@ SUPPORTED = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
 def load_images_from_csv(metadata_path):
     import pandas as pd
-    df = pd.read_csv(metadata_path)
+    df = pd.read_csv(metadata_path, on_bad_lines="skip")
     return df["image_path"].tolist()
 
 def load_images_from_dir(image_dir):
@@ -55,9 +55,11 @@ def encode_images(paths, model, processor, device, batch_size):
         if not images:
             continue
 
-        inputs = processor(images=images, return_tensors="pt", padding=True).to(device)
+        pixel_values = processor(images=images, return_tensors="pt").to(device)["pixel_values"]
         with torch.no_grad():
-            embeds = model.get_image_features(**inputs)
+            # Explicit path: works across all transformers versions
+            vision_out = model.vision_model(pixel_values=pixel_values)
+            embeds = model.visual_projection(vision_out.pooler_output)
             embeds = F.normalize(embeds, p=2, dim=-1)
 
         all_embeds.append(embeds.cpu().numpy().astype(np.float32))

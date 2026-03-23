@@ -39,7 +39,12 @@ def load_artifacts():
 def embed_text(query, model, processor, device):
     inputs = processor(text=query, return_tensors="pt", padding=True, truncation=True).to(device)
     with torch.no_grad():
-        embed = model.get_text_features(**inputs)
+        # Explicit path: works across all transformers versions
+        text_out = model.text_model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"]
+        )
+        embed = model.text_projection(text_out.pooler_output)
         embed = F.normalize(embed, p=2, dim=-1)
     return embed.cpu().numpy().astype(np.float32)
 
