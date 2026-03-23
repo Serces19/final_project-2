@@ -25,7 +25,7 @@ def main():
     print(f"🖥️  Device: {device}")
 
     print("⬇️  Loading CLIP + LoRA model...")
-    model = get_clip_lora(r=args.lora_r, lora_alpha=args.lora_alpha)
+    model = get_clip_lora(r=args.lora_r, lora_alpha=args.lora_alpha).to(device)
 
     if args.mode == "train":
         print(f"📂 Loading train dataset: {args.metadata}")
