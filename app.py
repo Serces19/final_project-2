@@ -53,9 +53,22 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 @st.cache_resource(show_spinner="⬇️  Loading CLIP model...")
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-    processor = CLIPProcessor.from_pretrained(MODEL_NAME)
-    return model, processor, device
+    base   = CLIPModel.from_pretrained(MODEL_NAME)
+    ckpt   = Path("checkpoints")
+    meta   = Path("vector_store/meta.json")
+
+    # Auto-detect LoRA checkpoint
+    if ckpt.exists() and (ckpt / "adapter_config.json").exists():
+        from peft import PeftModel
+        model     = PeftModel.from_pretrained(base, str(ckpt))
+        model     = model.merge_and_unload()
+        model_tag = f"✨ LoRA fine-tuned ({ckpt})"
+    else:
+        model     = base
+        model_tag = "🧠 Base CLIP (no fine-tuning)"
+
+    model.to(device).eval()
+    return model, CLIPProcessor.from_pretrained(MODEL_NAME), device, model_tag
 
 @st.cache_resource(show_spinner="📂 Loading vector store...")
 def load_index():
@@ -116,14 +129,25 @@ def show_results(results, label):
 st.markdown('<p class="main-title">🔍 ScopeSearch</p>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Semantic image retrieval · CLIP · FAISS · Text & Image queries</p>', unsafe_allow_html=True)
 
-model, processor, device = load_model()
+model, processor, device, model_tag = load_model()
 index, image_paths = load_index()
 
 if index is None:
     st.error("❌ Vector store not found. Run `index_images.py` first.", icon="🚫")
     st.stop()
 
-st.markdown(f"**{index.ntotal:,}** images indexed · device: `{device}`")
+# Sidebar — model info
+with st.sidebar:
+    st.markdown("### 📦 Model Info")
+    st.info(model_tag)
+    st.markdown(f"**{index.ntotal:,}** images indexed")
+    st.markdown(f"Device: `{device}`")
+    st.markdown("---")
+    if st.button("🔄 Reload model & index"):
+        st.cache_resource.clear()
+        st.rerun()
+
+st.markdown(f"**{index.ntotal:,}** images indexed · {model_tag} · device: `{device}`")
 
 tab_text, tab_image = st.tabs(["📝 Text Search", "🖼️ Image Search"])
 

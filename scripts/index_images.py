@@ -1,15 +1,17 @@
 """
 scripts/index_images.py
-Encodes all images in a metadata CSV with base CLIP (no training required)
-and saves a FAISS index for fast text search.
+Encodes all images using CLIP (base or LoRA fine-tuned) and saves a FAISS index.
 
-Usage:
+Usage — base CLIP:
     uv run python scripts/index_images.py --metadata data/processed/coco_val.csv
-    uv run python scripts/index_images.py --image_dir data/raw/my_vfx_assets/  (no CSV needed)
+
+Usage — with fine-tuned LoRA checkpoint:
+    uv run python scripts/index_images.py \
+        --metadata data/processed/vfx_val.csv \
+        --checkpoint checkpoints/
 """
 import argparse
 import json
-import pickle
 from pathlib import Path
 
 import faiss
@@ -22,11 +24,27 @@ from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME  = "openai/clip-vit-base-patch32"
 EMBED_DIM   = 512
-BATCH_SIZE  = 64  # increase on GPU
+BATCH_SIZE  = 64
 INDEX_OUT   = Path("vector_store/index.faiss")
 PATHS_OUT   = Path("vector_store/image_paths.json")
+META_OUT    = Path("vector_store/meta.json")   # stores which model was used
 
 SUPPORTED = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
+
+
+def load_model(checkpoint=None, device="cuda"):
+    """Load base CLIP or LoRA fine-tuned model."""
+    base = CLIPModel.from_pretrained(MODEL_NAME)
+    if checkpoint and Path(checkpoint).exists():
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(base, checkpoint)
+        model = model.merge_and_unload()  # fuse LoRA into weights for fast inference
+        kind = f"CLIP + LoRA ({checkpoint})"
+    else:
+        model = base
+        kind = "CLIP base (no fine-tuning)"
+    print(f"✅ Model loaded: {kind}")
+    return model.to(device).eval(), kind
 
 
 def load_images_from_csv(metadata_path):
@@ -70,8 +88,10 @@ def encode_images(paths, model, processor, device, batch_size):
 
 def main():
     parser = argparse.ArgumentParser(description="Build FAISS index from images")
-    parser.add_argument("--metadata",  type=str, help="Path to CSV with 'image_path' column")
-    parser.add_argument("--image_dir", type=str, help="Alternative: folder of images (no CSV required)")
+    parser.add_argument("--metadata",   type=str, help="Path to CSV with 'image_path' column")
+    parser.add_argument("--image_dir",  type=str, help="Alt: folder of images (no CSV required)")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Path to LoRA checkpoint dir (e.g. checkpoints/). Omit for base CLIP.")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     args = parser.parse_args()
 
@@ -81,8 +101,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🖥️  Device: {device}")
 
-    print(f"⬇️  Loading model: {MODEL_NAME}")
-    model     = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    model, model_kind = load_model(args.checkpoint, device)
     processor = CLIPProcessor.from_pretrained(MODEL_NAME)
 
     paths = load_images_from_csv(args.metadata) if args.metadata else load_images_from_dir(args.image_dir)
@@ -103,8 +122,15 @@ def main():
         json.dump(valid_paths, f)
     print(f"💾 Image paths saved: {PATHS_OUT}")
 
-    print("\n🎉 Indexing complete! Run search with:")
-    print('   uv run python scripts/search_cli.py --query "your text query"')
+    # Save metadata so app.py knows which model was used
+    with open(META_OUT, "w") as f:
+        import json as _json
+        _json.dump({"model": model_kind, "checkpoint": args.checkpoint}, f)
+
+    print(f"\n🎉 Indexing complete! Model used: {model_kind}")
+    print('   uv run python scripts/search_cli.py --query "your query"')
+    if args.checkpoint:
+        print(f'   (or pass --checkpoint {args.checkpoint} to search_cli.py)')
 
 
 if __name__ == "__main__":
