@@ -39,7 +39,6 @@ def load_artifacts():
 def embed_text(query, model, processor, device):
     inputs = processor(text=query, return_tensors="pt", padding=True, truncation=True).to(device)
     with torch.no_grad():
-        # Explicit path: works across all transformers versions
         text_out = model.text_model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"]
@@ -49,8 +48,20 @@ def embed_text(query, model, processor, device):
     return embed.cpu().numpy().astype(np.float32)
 
 
-def search(query, index, image_paths, model, processor, device, top_k=5):
-    embed = embed_text(query, model, processor, device)
+def embed_image(image_path_or_pil, model, processor, device):
+    """Encode a local image path or a PIL Image into a CLIP embedding."""
+    from PIL import Image as PILImage
+    img = PILImage.open(image_path_or_pil).convert("RGB") if isinstance(image_path_or_pil, (str, Path)) else image_path_or_pil
+    pixel_values = processor(images=img, return_tensors="pt")["pixel_values"].to(device)
+    with torch.no_grad():
+        vision_out = model.vision_model(pixel_values=pixel_values)
+        embed = model.visual_projection(vision_out.pooler_output)
+        embed = F.normalize(embed, p=2, dim=-1)
+    return embed.cpu().numpy().astype(np.float32)
+
+
+def search(embed, index, image_paths, top_k=5):
+    """Generic search: accepts a pre-computed embedding (text or image)."""
     faiss.normalize_L2(embed)
     distances, indices = index.search(embed, top_k)
     results = []
@@ -74,8 +85,9 @@ def print_results(query, results):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ScopeSearch: Text → Image retrieval")
-    parser.add_argument("--query", type=str, help="Text query. If omitted, enters interactive mode.")
+    parser = argparse.ArgumentParser(description="ScopeSearch: Text/Image → Image retrieval")
+    parser.add_argument("--query",      type=str, help="Text query (text-to-image mode)")
+    parser.add_argument("--image_path", type=str, help="Path to query image (image-to-image mode)")
     parser.add_argument("--top_k", type=int, default=5, help="Number of results (default: 5)")
     args = parser.parse_args()
 
@@ -90,20 +102,33 @@ def main():
     index, image_paths = load_artifacts()
     print(f"✅ Index loaded — {index.ntotal} images indexed\n")
 
-    if args.query:
-        # One-shot mode
-        results = search(args.query, index, image_paths, model, processor, device, args.top_k)
+    if args.image_path:
+        print(f"🖼️  Query image: {args.image_path}")
+        embed = embed_image(args.image_path, model, processor, device)
+        results = search(embed, index, image_paths, args.top_k)
+        print_results(f"[image] {args.image_path}", results)
+
+    elif args.query:
+        embed = embed_text(args.query, model, processor, device)
+        results = search(embed, index, image_paths, args.top_k)
         print_results(args.query, results)
+
     else:
-        # Interactive REPL
-        print("💬 Interactive mode — type a query and press ENTER (Ctrl+C to exit)\n")
+        print("💬 Interactive mode — type a query, or 'img:<path>' for image search. Ctrl+C to exit.\n")
         while True:
             try:
-                query = input("🔎 Query > ").strip()
-                if not query:
+                raw = input("🔎 Query > ").strip()
+                if not raw:
                     continue
-                results = search(query, index, image_paths, model, processor, device, args.top_k)
-                print_results(query, results)
+                if raw.startswith("img:"):
+                    path = raw[4:].strip()
+                    embed = embed_image(path, model, processor, device)
+                    label = f"[image] {path}"
+                else:
+                    embed = embed_text(raw, model, processor, device)
+                    label = raw
+                results = search(embed, index, image_paths, args.top_k)
+                print_results(label, results)
             except KeyboardInterrupt:
                 print("\n\n👋 Exiting.")
                 break
