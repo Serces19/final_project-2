@@ -55,9 +55,10 @@ def load_images_from_csv(metadata_path):
 def load_images_from_dir(image_dir):
     return [str(p) for p in Path(image_dir).rglob("*") if p.suffix.lower() in SUPPORTED]
 
-def encode_images(paths, model, processor, device, batch_size):
+def encode_images(paths, model, processor, device, batch_size, fp16=False):
     all_embeds = []
     valid_paths = []
+    dtype = torch.float16 if fp16 else torch.float32
 
     for i in tqdm(range(0, len(paths), batch_size), desc="Encoding images"):
         batch_paths = paths[i:i + batch_size]
@@ -73,12 +74,11 @@ def encode_images(paths, model, processor, device, batch_size):
         if not images:
             continue
 
-        pixel_values = processor(images=images, return_tensors="pt").to(device)["pixel_values"]
-        with torch.no_grad():
-            # Explicit path: works across all transformers versions
+        pixel_values = processor(images=images, return_tensors="pt")["pixel_values"].to(device=device, dtype=dtype)
+        with torch.no_grad(), torch.autocast(device_type=device.split(":")[0], enabled=fp16):
             vision_out = model.vision_model(pixel_values=pixel_values)
             embeds = model.visual_projection(vision_out.pooler_output)
-            embeds = F.normalize(embeds, p=2, dim=-1)
+            embeds = F.normalize(embeds.float(), p=2, dim=-1)
 
         all_embeds.append(embeds.cpu().numpy().astype(np.float32))
         valid_paths.extend(batch_valid)
@@ -93,21 +93,28 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to LoRA checkpoint dir (e.g. checkpoints/). Omit for base CLIP.")
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--fp16", action="store_true",
+                        help="Use FP16 half-precision for 2x speedup on GPU (requires CUDA)")
     args = parser.parse_args()
 
     if not args.metadata and not args.image_dir:
         parser.error("Provide --metadata or --image_dir")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"🖥️  Device: {device}")
+    if args.fp16 and device == "cpu":
+        print("⚠️  --fp16 ignored on CPU — requires CUDA")
+        args.fp16 = False
+    print(f"🖥️  Device: {device}{'  [FP16]' if args.fp16 else ''}")
 
     model, model_kind = load_model(args.checkpoint, device)
+    if args.fp16:
+        model = model.half()
     processor = CLIPProcessor.from_pretrained(MODEL_NAME)
 
     paths = load_images_from_csv(args.metadata) if args.metadata else load_images_from_dir(args.image_dir)
     print(f"🖼️  Found {len(paths)} images to index")
 
-    embeddings, valid_paths = encode_images(paths, model, processor, device, args.batch_size)
+    embeddings, valid_paths = encode_images(paths, model, processor, device, args.batch_size, args.fp16)
     print(f"✅ Encoded {len(valid_paths)} images  ({embeddings.shape})")
 
     # Build and save FAISS index
