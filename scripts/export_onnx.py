@@ -63,19 +63,18 @@ def load_clip(checkpoint=None):
 
 # ─── Export ──────────────────────────────────────────────────────────────────
 def export_vision(model, out_dir: Path):
-    processor = CLIPProcessor.from_pretrained(MODEL_NAME)
-    dummy_img = torch.zeros(1, 3, 224, 224)  # (B, C, H, W)
-    encoder   = VisionEncoder(model)
+    dummy_img = torch.zeros(1, 3, 224, 224)
+    encoder   = VisionEncoder(model).eval()   # ensure eval mode on wrapper
 
     path = out_dir / "vision_encoder.onnx"
     torch.onnx.export(
         encoder, (dummy_img,),
         str(path),
-        export_params   = True,
-        opset_version   = 17,
-        input_names     = ["pixel_values"],
-        output_names    = ["image_embeds"],
-        dynamic_axes    = {"pixel_values": {0: "batch"}, "image_embeds": {0: "batch"}},
+        export_params = True,
+        opset_version = 18,                    # match onnxscript native opset
+        input_names   = ["pixel_values"],
+        output_names  = ["image_embeds"],
+        dynamic_axes  = {"pixel_values": {0: "batch"}, "image_embeds": {0: "batch"}},
     )
     print(f"💾 Vision encoder → {path}  ({path.stat().st_size / 1e6:.1f} MB)")
     return path
@@ -84,7 +83,7 @@ def export_vision(model, out_dir: Path):
 def export_text(model, out_dir: Path):
     processor = CLIPProcessor.from_pretrained(MODEL_NAME)
     dummy     = processor(text=["a test caption"], return_tensors="pt", padding=True, truncation=True)
-    encoder   = TextEncoder(model)
+    encoder   = TextEncoder(model).eval()      # ensure eval mode on wrapper
 
     path = out_dir / "text_encoder.onnx"
     torch.onnx.export(
@@ -92,7 +91,7 @@ def export_text(model, out_dir: Path):
         (dummy["input_ids"], dummy["attention_mask"]),
         str(path),
         export_params = True,
-        opset_version = 17,
+        opset_version = 18,                    # match onnxscript native opset
         input_names   = ["input_ids", "attention_mask"],
         output_names  = ["text_embeds"],
         dynamic_axes  = {
