@@ -1,0 +1,127 @@
+# =============================================================================
+# ScopeSearch — .gitignore
+# Stack: Python · PyTorch · Node/React · Terraform · AWS
+# =============================================================================
+
+# ─── Python & UV ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+.uv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ─── ML Artifacts ────────────────────────────────────────────────────────────
+# Model weights & checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+checkpoints/
+
+# FAISS indexes
+*.faiss
+*.index
+
+# HuggingFace cache (huge, never commit)
+.cache/huggingface/
+
+# Experiment tracking
+mlruns/
+wandb/
+runs/
+lightning_logs/
+outputs/
+
+# ─── Data ────────────────────────────────────────────────────────────────────
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.hdf5
+*.h5
+*.db
+*.sqlite
+# Keep examples (small reference files)
+!data/examples/
+
+# VFX assets (never commit large media files)
+*.exr
+*.dpx
+*.mov
+*.mp4
+*.avi
+*.nk
+
+# ─── Jupyter ─────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ─── Environment Variables & Secrets ─────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ─── Frontend (React/Vite/Next.js) ───────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/.cache/
+frontend/coverage/
+*.tsbuildinfo
+
+# ─── Backend ─────────────────────────────────────────────────────────────────
+backend/__pycache__/
+backend/.env
+backend/logs/
+
+# ─── Terraform / Infrastructure ──────────────────────────────────────────────
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfplan
+infra/.terraform.lock.hcl
+infra/override.tf
+infra/override.tf.json
+infra/*_override.tf
+infra/*_override.tf.json
+
+# ─── AWS / Cloud ─────────────────────────────────────────────────────────────
+.aws/
+sam-app/.aws-sam/
+*.zip              # Lambda deployment packages
+
+# ─── Testing ─────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.xml
+
+# ─── Editors & OS ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
