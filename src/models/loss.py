@@ -8,11 +8,11 @@ class ContrastiveLoss(nn.Module):
     Minimizes the distance between paired image and text embeddings, and maximizes 
     the distance with incorrect descriptions.
     """
-    def __init__(self, temperature=0.07):
+    def __init__(self, temperature=0.07, label_smoothing=0.0):
         super(ContrastiveLoss, self).__init__()
         # temperature (tau) is often learned, but can also be fixed
         self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(torch.tensor(1 / temperature)))
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         
     def forward(self, image_embeds, text_embeds):
         # Normalize embeddings
