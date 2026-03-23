@@ -1,50 +1,67 @@
 import argparse
 import torch
+from pathlib import Path
 from src.data.dataset import create_dataloaders
 from src.models.clip_lora import get_clip_lora
 from src.models.loss import ContrastiveLoss
 from src.engine.train import train_model
 from src.engine.evaluate import evaluate_model
-from src.retrieval.faiss_index import FaissRetrievalSystem, get_text_embedding
-from transformers import CLIPProcessor
+
 
 def main():
     parser = argparse.ArgumentParser(description="ScopeSearch: VFX Asset Semantic Retrieval via PEFT CLIP")
-    parser.add_argument("--mode", type=str, choices=["train", "evaluate", "search"], required=True)
-    parser.add_argument("--metadata", type=str, help="Path to CSV/JSON metadata for train/eval")
-    parser.add_argument("--query", type=str, help="Text query to search for VFX assets")
-    parser.add_argument("--epochs", type=int, default=5)
-    
+    parser.add_argument("--mode",       type=str, choices=["train", "evaluate"], required=True)
+    parser.add_argument("--metadata",   type=str, required=True, help="Path to train CSV")
+    parser.add_argument("--val",        type=str, default=None,  help="Path to val CSV (optional)")
+    parser.add_argument("--epochs",     type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--lr",         type=float, default=1e-4)
+    parser.add_argument("--save_dir",   type=str, default="checkpoints/", help="Where to save LoRA weights")
+    parser.add_argument("--lora_r",     type=int, default=8,  help="LoRA rank")
+    parser.add_argument("--lora_alpha", type=int, default=16, help="LoRA alpha")
+
     args = parser.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # 1. Load Model (with LoRA)
-    print("Loading CLIP PEFT Model...")
-    model = get_clip_lora()
-    
+    print(f"🖥️  Device: {device}")
+
+    print("⬇️  Loading CLIP + LoRA model...")
+    model = get_clip_lora(r=args.lora_r, lora_alpha=args.lora_alpha)
+
     if args.mode == "train":
-        if not args.metadata:
-            raise ValueError("--metadata is required for training")
-        print("Starting training...")
-        train_loader = create_dataloaders(args.metadata, is_csv=args.metadata.endswith(".csv"))
+        print(f"📂 Loading train dataset: {args.metadata}")
+        train_loader = create_dataloaders(args.metadata, batch_size=args.batch_size, shuffle=True)
+
+        val_loader = None
+        if args.val:
+            print(f"📂 Loading val dataset:   {args.val}")
+            val_loader = create_dataloaders(args.val, batch_size=args.batch_size, shuffle=False)
+
         criterion = ContrastiveLoss()
-        model = train_model(model, train_loader, val_dataloader=None, criterion=criterion, num_epochs=args.epochs, device=device)
-        print("Training complete.")
-        
+
+        print(f"\n🚀 Starting training — {args.epochs} epochs, lr={args.lr}")
+        model = train_model(
+            model, train_loader, val_loader,
+            criterion=criterion,
+            num_epochs=args.epochs,
+            learning_rate=args.lr,
+            device=device
+        )
+
+        # Save LoRA weights
+        save_dir = Path(args.save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(str(save_dir))
+        print(f"\n💾 LoRA weights saved to: {save_dir}")
+        print("🎉 Training complete!")
+        print(f"\nNext — re-index with the fine-tuned model and launch the UI:")
+        print(f"  uv run python scripts/index_images.py --metadata {args.val or args.metadata}")
+        print(f"  streamlit run app.py")
+
     elif args.mode == "evaluate":
-        if not args.metadata:
-            raise ValueError("--metadata is required for evaluation")
-        print("Starting evaluation...")
-        val_loader = create_dataloaders(args.metadata, is_csv=args.metadata.endswith(".csv"), shuffle=False)
+        print(f"📊 Evaluating on: {args.metadata}")
+        val_loader = create_dataloaders(args.metadata, batch_size=args.batch_size, shuffle=False)
         evaluate_model(model, val_loader, device=device)
-        
-    elif args.mode == "search":
-        if not args.query:
-            raise ValueError("--query is required for search mode")
-        print(f"Searching for: '{args.query}'...")
-        processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        embed = get_text_embedding(model, processor, args.query, device=device)
-        print("Embeddings generated successfully. System is ready to connect mapped RAG visual database.")
+
 
 if __name__ == "__main__":
     main()
