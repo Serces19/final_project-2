@@ -1,11 +1,11 @@
-# ScopeSearch 🎬🔍
+# ScopeSearch
 **Recuperación Semántica de Assets mediante CLIP + FAISS + LoRA/PEFT**
 
 Motor de búsqueda multimodal para buscar imágenes por **texto** o por **imagen similar**, sin depender de nombres de archivo ni metadatos manuales.
 
 ---
 
-## 🏗️ Arquitectura
+## Arquitectura
 
 ```
 CLIP (openai/clip-vit-base-patch32)
@@ -28,7 +28,7 @@ CLIP (openai/clip-vit-base-patch32)
 
 ---
 
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 
 ```
 final_project 2/
@@ -77,11 +77,11 @@ final_project 2/
 
 ---
 
-## ⚡ Quickstart — Entorno
+## Quickstart — Entorno
 
 ```bash
 uv venv
-source .venv/bin/activate   # Linux/Mac / vast.ai
+source .venv/bin/activate   # Linux/Mac
 
 uv pip install torch torchvision transformers peft faiss-cpu \
                pillow pandas tqdm pytest streamlit matplotlib
@@ -89,7 +89,7 @@ uv pip install torch torchvision transformers peft faiss-cpu \
 
 ---
 
-## 🗄️ Paso 1 — Construir la Base de Conocimiento (Índice)
+## Paso 1 — Construir la Base de Conocimiento (Índice)
 
 El índice FAISS puede contener **cualquier combinación de datasets**. Se puede usar el modelo base o el fine-tuned.
 
@@ -120,7 +120,7 @@ uv run python scripts/index_images.py \
     --batch_size 128
 ```
 
-### Opción C ✅ — COCO + VFX juntos en el mismo índice (RECOMENDADO)
+### Opción C — COCO + VFX juntos en el mismo índice (RECOMENDADO)
 
 ```bash
 # Combinar los dos CSVs en uno
@@ -149,7 +149,7 @@ uv run python scripts/index_images.py \
 
 ---
 
-## 🧪 Paso 2 — Sanity Check (Baseline sin entrenamiento)
+## Paso 2 — Sanity Check (Baseline sin entrenamiento)
 
 ```bash
 uv run python -m pytest tests/test_base_clip.py -v
@@ -164,7 +164,7 @@ test_faiss_retrieval    PASSED  — Recall@1 = 50.00%  ← baseline
 
 ---
 
-## 📋 Paso 3 — Preparar Dataset VFX para Fine-Tuning
+## Paso 3 — Preparar Dataset VFX para Fine-Tuning
 
 ### 3a. Validar el CSV antes de entrenar
 
@@ -185,7 +185,7 @@ uv run python scripts/prepare_vfx_dataset.py \
 
 ---
 
-## 🚀 Paso 4 — Entrenar con LoRA
+## Paso 4 — Entrenar con LoRA
 
 ```bash
 uv run python main.py \
@@ -208,7 +208,7 @@ Epoch | Train Loss | Recall@1 (val)
   Best loss  : 1.1890 (epoch 10)
   Best R@1   : 62.50% (epoch 10)
 ══════════════════════════════════
-💾 Metrics saved: logs/training_metrics.json
+Metrics saved: logs/training_metrics.json
 ```
 
 Los pesos LoRA se guardan en `checkpoints/` (~4-8 MB).
@@ -223,7 +223,7 @@ uv run python scripts/plot_metrics.py
 
 ---
 
-## 🔍 Paso 5 — Inferencia / Búsqueda
+## Paso 5 — Inferencia / Búsqueda
 
 ### UI Streamlit
 
@@ -240,12 +240,12 @@ Abrí `http://<IP>:8501` en el browser.
 > ```
 
 La UI detecta automáticamente si existe `checkpoints/adapter_config.json` y carga el modelo fine-tuned. El sidebar muestra:
-- `✨ LoRA fine-tuned (checkpoints/)` si hay checkpoint
-- `🧠 Base CLIP (no fine-tuning)` si no
+- `LoRA fine-tuned (checkpoints/)` si hay checkpoint
+- `Base CLIP (no fine-tuning)` si no
 
 **Modos de búsqueda:**
-- 📝 **Text Search** — escribe una descripción en lenguaje natural
-- 🖼️ **Image Search** — sube una imagen y encuentra las más similares
+- **Text Search** — escribe una descripción en lenguaje natural
+- **Image Search** — sube una imagen y encuentra las más similares
 
 ### CLI (alternativa sin UI)
 
@@ -258,13 +258,13 @@ uv run python scripts/search_cli.py --image_path data/raw/vfx_assets/depth/img00
 
 # Modo interactivo mixto
 uv run python scripts/search_cli.py
-🔎 Query > a green screen plate        ← texto
-🔎 Query > img:/ruta/a/imagen.jpg      ← imagen
+Query > a green screen plate        ← texto
+Query > img:/ruta/a/imagen.jpg      ← imagen
 ```
 
 ---
 
-## 📐 Función de Pérdida
+## Función de Pérdida
 
 $$L = -\frac{1}{N} \sum_{i=1}^{N} \log \frac{\exp(\text{sim}(I_i, T_i)/\tau)}{\sum_{j=1}^{N} \exp(\text{sim}(I_i, T_j)/\tau)}$$
 
@@ -272,7 +272,7 @@ La temperatura $\tau$ es un parámetro **aprendible** (`nn.Parameter`).
 
 ---
 
-## 📊 Métricas
+## Métricas
 
 | Métrica | Descripción |
 |---|---|
