@@ -1,9 +1,7 @@
 # ScopeSearch 🎬🔍
 **Recuperación Semántica de Assets mediante CLIP + FAISS + LoRA/PEFT**
 
-Motor de búsqueda multimodal que permite buscar imágenes/assets de VFX usando **lenguaje natural**:
-
-> *"a dog running on the beach"* → devuelve los assets más similares en milisegundos.
+Motor de búsqueda multimodal para buscar imágenes por **texto** o por **imagen similar**, sin depender de nombres de archivo ni metadatos manuales.
 
 ---
 
@@ -24,122 +22,244 @@ CLIP (openai/clip-vit-base-patch32)
 | Base Model | `openai/clip-vit-base-patch32` |
 | Domain Adaptation | `peft` LoRA (~1% parámetros entrenables) |
 | Vector DB | `faiss-cpu` (IndexFlatIP) |
-| Métricas | Recall@K (1/5/10), MRR |
-| UI | Streamlit |
+| Métricas | Recall@1, training loss por epoch |
+| UI | Streamlit (`app.py`) |
 | Package Manager | `uv` |
 
 ---
 
-## 📁 Estructura
+## 📁 Estructura del Proyecto
 
 ```
 final_project 2/
 ├── data/
-│   ├── raw/          ← assets originales (EXR, JPG, PNG...)
-│   └── processed/    ← metadata CSV con pares image_path + description
+│   ├── raw/
+│   │   ├── coco/val2017/          ← COCO val 2017 (5k imágenes)
+│   │   └── vfx_assets/            ← Assets VFX propios
+│   │       ├── assets/
+│   │       ├── chroma/
+│   │       ├── depth/
+│   │       └── normals/
+│   └── processed/
+│       ├── coco_val.csv           ← Generado por download_coco_val.py
+│       ├── vfx_dataset.csv        ← Generado por build_csv_from_folders.py
+│       ├── vfx_train.csv          ← Split de entrenamiento
+│       ├── vfx_val.csv            ← Split de validación
+│       └── combined.csv           ← COCO + VFX unificados
 ├── scripts/
-│   ├── download_coco_val.py     ← descarga COCO val 2017 (~1 GB)
-│   ├── index_images.py          ← indexa imágenes → FAISS
-│   └── search_cli.py            ← búsqueda por CLI (sin UI)
+│   ├── download_coco_val.py       ← Descarga COCO val 2017
+│   ├── build_csv_from_folders.py  ← Genera CSV desde carpetas VFX propias
+│   ├── validate_dataset.py        ← Valida el CSV antes de entrenar
+│   ├── index_images.py            ← Crea el índice FAISS
+│   ├── search_cli.py              ← Búsqueda por CLI (texto o imagen)
+│   ├── prepare_vfx_dataset.py     ← Split train/val
+│   └── plot_metrics.py            ← Genera gráficas de entrenamiento
 ├── src/
-│   ├── data/dataset.py          ← Dataset + DataLoader (CLIPProcessor)
-│   ├── models/
-│   │   ├── clip_lora.py         ← CLIP + LoRA via PEFT
-│   │   └── loss.py              ← Contrastive Loss
-│   ├── engine/
-│   │   ├── train.py             ← Bucle de entrenamiento
-│   │   └── evaluate.py          ← Recall@K y MRR
-│   └── retrieval/faiss_index.py ← Índice FAISS
-├── tests/
-│   └── test_base_clip.py        ← Sanity check sin PEFT
-├── vector_store/                ← Generado por index_images.py
+│   ├── data/dataset.py
+│   ├── models/clip_lora.py        ← CLIP + LoRA via PEFT
+│   ├── models/loss.py             ← Contrastive Loss
+│   ├── engine/train.py            ← Bucle de entrenamiento + métricas
+│   └── engine/evaluate.py         ← Recall@K y MRR
+├── checkpoints/                   ← Pesos LoRA guardados tras entrenar
+│   ├── adapter_config.json
+│   └── adapter_model.safetensors
+├── vector_store/                  ← Generado por index_images.py
 │   ├── index.faiss
-│   └── image_paths.json
-├── app.py                       ← UI Streamlit
-└── main.py                      ← CLI unificado (train/evaluate/search)
+│   ├── image_paths.json
+│   └── meta.json                  ← Indica qué modelo generó el índice
+├── logs/
+│   ├── training_metrics.json      ← Historial época × loss × Recall@1
+│   └── training_curves.png        ← Gráficas generadas por plot_metrics.py
+├── tests/test_base_clip.py        ← Sanity check sin PEFT (baseline)
+├── app.py                         ← UI Streamlit
+└── main.py                        ← CLI unificado (train / evaluate)
 ```
 
 ---
 
-## ⚡ Quickstart
-
-### 1. Entorno
+## ⚡ Quickstart — Entorno
 
 ```bash
 uv venv
-source .venv/bin/activate        # Linux/Mac (vast.ai)
-# .venv\Scripts\activate          # Windows
+source .venv/bin/activate   # Linux/Mac / vast.ai
 
-uv pip install torch torchvision transformers peft faiss-cpu pillow pandas tqdm pytest streamlit
+uv pip install torch torchvision transformers peft faiss-cpu \
+               pillow pandas tqdm pytest streamlit matplotlib
 ```
 
-### 2. Sanity check (sin dataset, datos sintéticos)
+---
+
+## 🗄️ Paso 1 — Construir la Base de Conocimiento (Índice)
+
+El índice FAISS puede contener **cualquier combinación de datasets**. Se puede usar el modelo base o el fine-tuned.
+
+### Opción A — Solo COCO val 2017 (5k imágenes generales)
+
+```bash
+# Descargar
+uv run python scripts/download_coco_val.py
+
+# Indexar
+uv run python scripts/index_images.py \
+    --metadata data/processed/coco_val.csv \
+    --batch_size 128
+```
+
+### Opción B — Solo assets VFX propios
+
+```bash
+# Generar CSV desde tus carpetas (assets/, chroma/, depth/, normals/)
+uv run python scripts/build_csv_from_folders.py \
+    --root data/raw/vfx_assets/ \
+    --output data/processed/vfx_dataset.csv \
+    --augment 3
+
+# Indexar
+uv run python scripts/index_images.py \
+    --metadata data/processed/vfx_dataset.csv \
+    --batch_size 128
+```
+
+### Opción C ✅ — COCO + VFX juntos en el mismo índice (RECOMENDADO)
+
+```bash
+# Combinar los dos CSVs en uno
+uv run python -c "
+import pandas as pd
+coco = pd.read_csv('data/processed/coco_val.csv')
+vfx  = pd.read_csv('data/processed/vfx_dataset.csv')
+combined = pd.concat([coco, vfx], ignore_index=True).sample(frac=1, random_state=42)
+combined.to_csv('data/processed/combined.csv', index=False)
+print(f'Total: {len(combined)} pares ({len(coco)} COCO + {len(vfx)} VFX)')
+"
+
+# Indexar todo junto
+uv run python scripts/index_images.py \
+    --metadata data/processed/combined.csv \
+    --batch_size 128
+```
+
+> Para usar el modelo fine-tuned (después de entrenar), agregá `--checkpoint checkpoints/`:
+> ```bash
+> uv run python scripts/index_images.py \
+>     --metadata data/processed/combined.csv \
+>     --checkpoint checkpoints/ \
+>     --batch_size 128
+> ```
+
+---
+
+## 🧪 Paso 2 — Sanity Check (Baseline sin entrenamiento)
 
 ```bash
 uv run python -m pytest tests/test_base_clip.py -v
 ```
 
-### 3. Descargar dataset COCO val 2017 (~1 GB, 5k imágenes)
-
-```bash
-uv run python scripts/download_coco_val.py
+Resultados esperados:
 ```
-Genera automáticamente `data/processed/coco_val.csv`.
-
-> **¿Tus propios assets VFX?** Saltá este paso y usá `--image_dir` en el siguiente.
-
-### 4. Indexar imágenes (una sola vez, ~90 seg en GPU)
-
-```bash
-# Con CSV (recomendado)
-uv run python scripts/index_images.py --metadata data/processed/coco_val.csv --batch_size 128
-
-# Con tu propia carpeta de imágenes
-uv run python scripts/index_images.py --image_dir data/raw/mis_assets/
+test_forward_pass       PASSED  — image_embeds: (4, 512)
+test_contrastive_loss   PASSED  — Loss ≈ 1.24
+test_faiss_retrieval    PASSED  — Recall@1 = 50.00%  ← baseline
 ```
 
-### 5. Lanzar la UI
+---
+
+## 📋 Paso 3 — Preparar Dataset VFX para Fine-Tuning
+
+### 3a. Validar el CSV antes de entrenar
+
+```bash
+uv run python scripts/validate_dataset.py --csv data/processed/vfx_dataset.csv
+```
+
+Verifica: archivos existentes, imágenes legibles, longitud de captions, distribución por categoría.
+
+### 3b. Split train / val (80% / 20%)
+
+```bash
+uv run python scripts/prepare_vfx_dataset.py \
+    --split --input data/processed/vfx_dataset.csv
+# → data/processed/vfx_train.csv
+# → data/processed/vfx_val.csv
+```
+
+---
+
+## 🚀 Paso 4 — Entrenar con LoRA
+
+```bash
+uv run python main.py \
+    --mode train \
+    --metadata data/processed/vfx_train.csv \
+    --val      data/processed/vfx_val.csv \
+    --epochs   10 \
+    --lr       1e-4
+```
+
+Durante el entrenamiento verás una tabla en tiempo real:
+
+```
+Epoch | Train Loss | Recall@1 (val)
+──────────────────────────────────
+    1 |     1.8234 |         12.50%
+    5 |     1.4120 |         37.50%
+   10 |     1.1890 |         62.50%
+══════════════════════════════════
+  Best loss  : 1.1890 (epoch 10)
+  Best R@1   : 62.50% (epoch 10)
+══════════════════════════════════
+💾 Metrics saved: logs/training_metrics.json
+```
+
+Los pesos LoRA se guardan en `checkpoints/` (~4-8 MB).
+
+### Generar gráficas de entrenamiento
+
+```bash
+uv pip install matplotlib
+uv run python scripts/plot_metrics.py
+# → logs/training_curves.png
+```
+
+---
+
+## 🔍 Paso 5 — Inferencia / Búsqueda
+
+### UI Streamlit
 
 ```bash
 streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 ```
 
-Luego abrí `http://<IP>:8501` en el browser.
+Abrí `http://<IP>:8501` en el browser.
 
-> **Túnel SSH (si el puerto no está expuesto):**
+> **Túnel SSH si el puerto no está expuesto:**
 > ```bash
 > ssh -p <PORT> -L 8501:localhost:8501 root@<IP>
+> # Luego: http://localhost:8501
 > ```
-> Luego `http://localhost:8501`.
 
-### 6. Búsqueda por CLI (alternativa sin UI)
+La UI detecta automáticamente si existe `checkpoints/adapter_config.json` y carga el modelo fine-tuned. El sidebar muestra:
+- `✨ LoRA fine-tuned (checkpoints/)` si hay checkpoint
+- `🧠 Base CLIP (no fine-tuning)` si no
+
+**Modos de búsqueda:**
+- 📝 **Text Search** — escribe una descripción en lenguaje natural
+- 🖼️ **Image Search** — sube una imagen y encuentra las más similares
+
+### CLI (alternativa sin UI)
 
 ```bash
-# One-shot
-uv run python scripts/search_cli.py --query "a person cooking" --top_k 5
+# Búsqueda por texto
+uv run python scripts/search_cli.py --query "smoke with alpha channel" --top_k 5
 
-# Modo interactivo
+# Búsqueda por imagen
+uv run python scripts/search_cli.py --image_path data/raw/vfx_assets/depth/img001.jpg
+
+# Modo interactivo mixto
 uv run python scripts/search_cli.py
-```
-
----
-
-## 🎓 Fine-Tuning con LoRA (opcional)
-
-Preparar un CSV con pares propios:
-```csv
-image_path,description
-data/raw/sh010_specular.exr,"pase de specular de un vehículo metálico"
-data/raw/smoke01.png,"humo denso con canal alfa premultiplicado"
-```
-
-Luego:
-```bash
-# Entrenar
-uv run python main.py --mode train --metadata data/processed/vfx_dataset.csv --epochs 10
-
-# Evaluar (Recall@K / MRR)
-uv run python main.py --mode evaluate --metadata data/processed/vfx_dataset.csv
+🔎 Query > a green screen plate        ← texto
+🔎 Query > img:/ruta/a/imagen.jpg      ← imagen
 ```
 
 ---
@@ -152,21 +272,12 @@ La temperatura $\tau$ es un parámetro **aprendible** (`nn.Parameter`).
 
 ---
 
-## 📊 Métricas de Evaluación
+## 📊 Métricas
 
 | Métrica | Descripción |
 |---|---|
-| **Recall@1** | % del asset correcto en el top-1 |
-| **Recall@5** | % del asset correcto en el top-5 |
-| **Recall@10** | % del asset correcto en el top-10 |
-| **MRR** | Mean Reciprocal Rank |
+| **Recall@1** | % del asset correcto en el top-1 resultado |
+| **Train Loss** | Contrastive loss promedio por epoch |
 
-### Baseline (CLIP sin fine-tuning, datos sintéticos)
-
-```
-test_forward_pass       PASSED  — image_embeds: (4, 512)
-test_contrastive_loss   PASSED  — Loss = 1.2422
-test_faiss_retrieval    PASSED  — Recall@1 = 50.00%
-```
-
-> Tras el fine-tuning con LoRA sobre datos reales de VFX, el Recall@1 debería mejorar significativamente.
+**Baseline (CLIP sin fine-tuning):** Recall@1 = **50%** sobre datos sintéticos.
+El objetivo del fine-tuning con LoRA es superar este baseline en el dominio VFX.
