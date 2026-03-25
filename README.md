@@ -80,6 +80,9 @@ final_project 2/
 ## Quickstart — Entorno
 
 ```bash
+git clone https://github.com/Serces19/final_project-2.git
+cd final_project-2
+
 uv venv
 source .venv/bin/activate   # Linux/Mac
 
@@ -169,6 +172,12 @@ test_faiss_retrieval    PASSED  — Recall@1 = 50.00%  ← baseline
 ### 3a. Validar el CSV antes de entrenar
 
 ```bash
+
+uv run python scripts/build_csv_from_folders.py \
+    --root data/raw/vfx_assets/ \
+    --output data/processed/vfx_dataset.csv \
+    --augment 3
+
 uv run python scripts/validate_dataset.py --csv data/processed/vfx_dataset.csv
 ```
 
@@ -192,8 +201,18 @@ uv run python main.py \
     --mode train \
     --metadata data/processed/vfx_train.csv \
     --val      data/processed/vfx_val.csv \
-    --epochs   10 \
-    --lr       1e-4
+    --epochs   15 \
+    --batch_size 32 \
+    --lr       1e-4 \
+    --lora_r   16 \
+    --lora_alpha 32 \
+    --lora_dropout 0.1 \
+    --weight_decay 0.05 \
+    --grad_clip 1.0 \
+    --label_smoothing 0.1 \
+    --scheduler cosine \
+    --warmup_epochs 2
+
 ```
 
 Durante el entrenamiento verás una tabla en tiempo real:

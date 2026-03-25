@@ -55,7 +55,7 @@ CATEGORY_CAPTIONS = {
         "depth channel render, grayscale depth map, white foreground",
     ],
 
-    "normal": [
+    "normals": [
         "surface normal map, RGB encoded normals, blue dominant pass",
         "normal map render, XYZ surface directions encoded as color",
         "normal AOV render pass, colored normal vectors, CGI surface",
